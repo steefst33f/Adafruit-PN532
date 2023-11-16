@@ -161,14 +161,13 @@ public:
   bool setPassiveActivationRetries(uint8_t maxRetries);
 
   // ISO14443A functions
-  bool readPassiveTargetID(
-      uint8_t cardbaudrate, uint8_t *uid, uint8_t *uidLength,
-      uint16_t timeout = 0); // timeout 0 means no timeout - will block forever.
   bool startPassiveTargetIDDetection(uint8_t cardbaudrate);
-  bool readDetectedPassiveTargetID(uint8_t *uid, uint8_t *uidLength);
+  bool readPassiveTargetID(uint8_t cardbaudrate, uint8_t *uid, uint8_t *uidLength, uint16_t timeout = 1000, bool inlist = false);
+  bool readPassiveTargetID(uint8_t cardbaudrate, uint8_t *uid, uint8_t *uidLength, uint8_t *apdu, uint8_t *apduLength, uint16_t timeout = 1000, bool inlist = false); //also get the APDU 
   bool inDataExchange(uint8_t *send, uint8_t sendLength, uint8_t *response,
                       uint8_t *responseLength);
   bool inListPassiveTarget();
+  bool readDetectedPassiveTargetID(uint8_t *uid, uint8_t *uidLength); 
   uint8_t AsTarget();
   uint8_t getDataTarget(uint8_t *cmd, uint8_t *cmdlen);
   uint8_t setDataTarget(uint8_t *cmd, uint8_t cmdlen);
@@ -206,6 +205,9 @@ private:
   int8_t _uidLen;      // uid len
   int8_t _key[6];      // Mifare Classic key
   int8_t _inListedTag; // Tg number of inlisted tag.
+
+  uint8_t _apdu[64];
+  uint8_t _apduLength;
 
   // Low level communication functions that handle both SPI and I2C.
   void readdata(uint8_t *buff, uint8_t n);
