@@ -172,6 +172,7 @@ public:
   uint8_t AsTarget();
   uint8_t getDataTarget(uint8_t *cmd, uint8_t *cmdlen);
   uint8_t setDataTarget(uint8_t *cmd, uint8_t cmdlen);
+  void inRelease(const uint8_t relevantTarget = 0);
 
   // Mifare Classic functions
   bool mifareclassic_IsFirstBlock(uint32_t uiBlock);

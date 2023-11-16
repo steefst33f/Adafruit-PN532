@@ -812,6 +812,21 @@ bool Adafruit_PN532::inListPassiveTarget() {
   return true;
 }
 
+/**************************************************************************/
+/*!
+    @brief    'InRelease' released the inlisted target(s). 
+              PN532 goes to low VBat Mode and RF field off.
+     @param   relevantTarget the target to be released, if 0 all targets are released
+*/
+/**************************************************************************/
+void Adafruit_PN532::inRelease(const uint8_t relevantTarget)
+{
+    pn532_packetbuffer[0] = PN532_COMMAND_INRELEASE;
+    pn532_packetbuffer[1] = relevantTarget;
+
+    writecommand(pn532_packetbuffer, 2);
+}
+
 /***** Mifare Classic Functions ******/
 
 /**************************************************************************/
