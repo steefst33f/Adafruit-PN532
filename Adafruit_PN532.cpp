@@ -87,13 +87,15 @@ byte pn532_packetbuffer[PN532_PACKBUFFSIZ]; ///< Packet buffer used in various
     @param  miso      SPI MISO pin
     @param  mosi      SPI MOSI pin
     @param  ss        SPI chip select pin (CS/SSEL)
+    //The fastest SPI speed that works reliable is 300000 (not 1000000, Adafruit_SPIDevice defaults frequency).
 */
 /**************************************************************************/
 Adafruit_PN532::Adafruit_PN532(uint8_t clk, uint8_t miso, uint8_t mosi,
                                uint8_t ss) {
   _cs = ss;
-  spi_dev = new Adafruit_SPIDevice(ss, clk, miso, mosi, 1000000,
+  spi_dev = new Adafruit_SPIDevice(ss, clk, miso, mosi, 300000,
                                    SPI_BITORDER_LSBFIRST, SPI_MODE0);
+
 }
 
 /**************************************************************************/
@@ -118,11 +120,12 @@ Adafruit_PN532::Adafruit_PN532(uint8_t irq, uint8_t reset, TwoWire *theWire)
 
     @param  ss        SPI chip select pin (CS/SSEL)
     @param  theSPI    pointer to the SPI bus to use
+    //The fastest SPI speed that works reliable is 300000 (not 1000000, Adafruit_SPIDevice defaults frequency).
 */
 /**************************************************************************/
 Adafruit_PN532::Adafruit_PN532(uint8_t ss, SPIClass *theSPI) {
   _cs = ss;
-  spi_dev = new Adafruit_SPIDevice(ss, 1000000, SPI_BITORDER_LSBFIRST,
+  spi_dev = new Adafruit_SPIDevice(ss, 300000, SPI_BITORDER_LSBFIRST,
                                    SPI_MODE0, theSPI);
 }
 
@@ -1620,7 +1623,6 @@ bool Adafruit_PN532::readack() {
   if (spi_dev) {
     uint8_t cmd = PN532_SPI_DATAREAD;
     spi_dev->write_then_read(&cmd, 1, ackbuff, 6);
-    //Build delay of 1 in here?
   } else if (i2c_dev || ser_dev) {
     readdata(ackbuff, 6);
   }
