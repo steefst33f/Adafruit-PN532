@@ -541,34 +541,106 @@ bool Adafruit_PN532::setPassiveActivationRetries(uint8_t maxRetries) {
 
 /**************************************************************************/
 /*!
-    @brief   Waits for an ISO14443A target to enter the field and reads
-             its ID.
+    Waits for an ISO14443A target to enter the field
 
-    @param   cardbaudrate  Baud rate of the card
-    @param   uid           Pointer to the array that will be populated
-                           with the card's UID (up to 7 bytes)
-    @param   uidLength     Pointer to the variable that will hold the
-                           length of the card's UID.
-    @param   timeout       Timeout in milliseconds.
+    @param  cardBaudRate  Baud rate of the card
+    @param  uid           Pointer to the array that will be populated
+                          with the card's UID (up to 7 bytes)
+    @param  uidLength     Pointer to the variable that will hold the
+                          length of the card's UID.
+    @param  timeout       The number of tries before timing out
+    @param  inlist        If set to true, the card will be inlisted
 
-    @return  1 if everything executed properly, 0 for an error
+    @returns 1 if everything executed properly, 0 for an error
 */
 /**************************************************************************/
-bool Adafruit_PN532::readPassiveTargetID(uint8_t cardbaudrate, uint8_t *uid,
-                                         uint8_t *uidLength, uint16_t timeout) {
-  pn532_packetbuffer[0] = PN532_COMMAND_INLISTPASSIVETARGET;
-  pn532_packetbuffer[1] = 1; // max 1 cards at once (we can set this to 2 later)
-  pn532_packetbuffer[2] = cardbaudrate;
-
-  if (!sendCommandCheckAck(pn532_packetbuffer, 3, timeout)) {
-#ifdef PN532DEBUG
-    PN532DEBUGPRINT.println(F("No card(s) read"));
-#endif
-    return 0x0; // no cards read
-  }
-
-  return readDetectedPassiveTargetID(uid, uidLength);
+bool Adafruit_PN532::readPassiveTargetID(uint8_t cardbaudrate, uint8_t *uid, uint8_t *uidLength, uint16_t timeout, bool inlist)
+{
+    return readPassiveTargetID(cardbaudrate, uid, uidLength, _apdu, &_apduLength, timeout, inlist);
 }
+
+/***************************************************************************/
+/*!
+    Waits for an ISO14443A target to enter the field
+
+    @param  cardBaudRate  Baud rate of the card
+    @param  uid           Pointer to the array that will be populated
+                          with the card's UID (up to 7 bytes)
+    @param  uidLength     Pointer to the variable that will hold the
+                          length of the card's UID.
+    @param  apdu           Pointer to the array that will be populated
+                          with the cards response APDU 
+    @param  apduLength     Pointer to the variable that will hold the
+                          length of the cards response APDU
+    @param  timeout       The number of tries before timing out
+    @param  inlist        If set to true, the card will be inlisted
+
+    @returns 1 if everything executed properly, 0 for an error
+*/
+/**************************************************************************/
+bool Adafruit_PN532::readPassiveTargetID(uint8_t cardbaudrate, uint8_t *uid, uint8_t *uidLength, uint8_t *apdu, uint8_t *apduLength, uint16_t timeout, bool inlist)
+{
+    pn532_packetbuffer[0] = PN532_COMMAND_INLISTPASSIVETARGET;
+    pn532_packetbuffer[1] = 1;  // max 1 cards at once (we can set this to 2 later)
+    pn532_packetbuffer[2] = cardbaudrate;
+
+    if (sendCommandCheckAck(pn532_packetbuffer, 3, timeout) < 0) {
+      #ifdef PN532DEBUG
+        PN532DEBUGPRINT.println(F("sendCommandCheckAck Failed"));
+      #endif
+      return 0x0;  // command failed
+    }
+
+    // read data packet
+    readdata(pn532_packetbuffer, 20);
+
+    // check some basic stuff
+    /* ISO14443A card response should be in the following format:
+
+      byte                              Description
+      -------------                     ------------------------------------------
+      b0..b6                            PN532 frame header and preamble
+      b7                                Tags Found
+      b8                                Tag Number (only one used in this example)
+      b9..10                            SENS_RES
+      b11                               SEL_RES
+      b12                               NFCID Length
+      b13..NFCIDLen                     NFCID
+      b12+NFCIDLen+1                    ATS Length
+      b12+NFCIDLen+2..NFCIDLen+ATSLen   ATS response
+      b12+NFCIDLen+2..NFCIDLen+ATSLen+1 Postamble
+    */
+
+    if (pn532_packetbuffer[7] != 1) {
+      return 0; //No tag found
+    }
+
+    uint16_t sens_res = pn532_packetbuffer[9];
+    sens_res <<= 8;
+    sens_res |= pn532_packetbuffer[10];
+
+    *uidLength = pn532_packetbuffer[12];
+    for (uint8_t i = 0; i < *uidLength; i++) {
+        uid[i] = pn532_packetbuffer[13 + i];
+    }
+
+    *apduLength = (pn532_packetbuffer[3] - 2);//LEN - 2 //-IFD -CMD byte
+    for (uint8_t i = 0; i < *apduLength; i++) {
+        apdu[i] = pn532_packetbuffer[7 + i];
+    }
+
+    #ifdef PN532DEBUG
+      Serial.print("apdu: ");
+      PrintHexChar(apdu, *apduLength);
+    #endif
+
+    if (inlist) {
+        _inListedTag = pn532_packetbuffer[8];
+    }
+
+    return 1;
+}
+
 
 /**************************************************************************/
 /*!
@@ -895,11 +967,11 @@ uint8_t Adafruit_PN532::mifareclassic_AuthenticateBlock(uint8_t *uid,
 
 #ifdef MIFAREDEBUG
   PN532DEBUGPRINT.print(F("Trying to authenticate card "));
-  Adafruit_PN532::PrintHex(_uid, _uidLen);
+  // Adafruit_PN532::PrintHex(_uid, _uidLen);
   PN532DEBUGPRINT.print(F("Using authentication KEY "));
   PN532DEBUGPRINT.print(keyNumber ? 'B' : 'A');
   PN532DEBUGPRINT.print(F(": "));
-  Adafruit_PN532::PrintHex(_key, 6);
+  // Adafruit_PN532::PrintHex(_key, 6);
 #endif
 
   // Prepare the authentication command //
@@ -1548,6 +1620,7 @@ bool Adafruit_PN532::readack() {
   if (spi_dev) {
     uint8_t cmd = PN532_SPI_DATAREAD;
     spi_dev->write_then_read(&cmd, 1, ackbuff, 6);
+    //Build delay of 1 in here?
   } else if (i2c_dev || ser_dev) {
     readdata(ackbuff, 6);
   }
