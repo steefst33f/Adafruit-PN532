@@ -340,6 +340,7 @@ bool Adafruit_PN532::sendCommandCheckAck(uint8_t *cmd, uint8_t cmdlen,
 
   // Wait for chip to say its ready!
   if (!waitready(timeout)) {
+    PN532DEBUGPRINT.println(F("Timed out......"));
     return false;
   }
 
@@ -499,7 +500,11 @@ bool Adafruit_PN532::SAMConfig(void) {
   pn532_packetbuffer[0] = PN532_COMMAND_SAMCONFIGURATION;
   pn532_packetbuffer[1] = 0x01; // normal mode;
   pn532_packetbuffer[2] = 0x14; // timeout 50ms * 20 = 1 second
-  pn532_packetbuffer[3] = 0x01; // use IRQ pin!
+  if (spi_dev == NULL) {
+    pn532_packetbuffer[3] = 0x01; // use IRQ pin!
+  } else {
+    pn532_packetbuffer[3] = 0x00; // don't use IRQ pin!
+  }
 
   if (!sendCommandCheckAck(pn532_packetbuffer, 4))
     return false;
@@ -785,7 +790,7 @@ bool Adafruit_PN532::inDataExchange(uint8_t *send, uint8_t sendLength,
     }
     if (pn532_packetbuffer[5] == PN532_PN532TOHOST &&
         pn532_packetbuffer[6] == PN532_RESPONSE_INDATAEXCHANGE) {
-      if ((pn532_packetbuffer[7] & 0x3f) != 0) {
+      if (checkPN532Status(pn532_packetbuffer[7])) {
 #ifdef PN532DEBUG
         PN532DEBUGPRINT.println(F("Status code indicates an error"));
 #endif
@@ -894,12 +899,27 @@ bool Adafruit_PN532::inListPassiveTarget() {
      @param   relevantTarget the target to be released, if 0 all targets are released
 */
 /**************************************************************************/
-void Adafruit_PN532::inRelease(const uint8_t relevantTarget)
+bool Adafruit_PN532::inRelease(const uint8_t relevantTarget)
 {
     pn532_packetbuffer[0] = PN532_COMMAND_INRELEASE;
     pn532_packetbuffer[1] = relevantTarget;
 
-    writecommand(pn532_packetbuffer, 2);
+    if (!sendCommandCheckAck(pn532_packetbuffer, 2)) {
+      return false;
+    };
+
+    readdata(pn532_packetbuffer, 10);
+ 
+    uint8_t length = pn532_packetbuffer[3];
+    if (length < 3 || pn532_packetbuffer[6] != PN532_COMMAND_INRELEASE + 1)
+    {
+      #ifdef PN532DEBUG
+        PN532DEBUGPRINT.println("Release failed\r\n");
+      #endif
+        return false;
+    }
+
+    return checkPN532Status(pn532_packetbuffer[7]);
 }
 
 /***** Mifare Classic Functions ******/
@@ -1907,4 +1927,120 @@ void Adafruit_PN532::writecommand(uint8_t *cmd, uint8_t cmdlen) {
       ser_dev->write(packet, 8 + cmdlen);
     }
   }
+}
+
+/**************************************************************************/
+/*!
+    @brief  Checks the PN532 status byte, when ok returns true, 
+            when error return false.
+            (When PN532DEBUG enabled, prints error status to serial.)
+
+    @param  statusByte PN532 Response Status byte
+*/
+/**************************************************************************/
+bool Adafruit_PN532::checkPN532Status(uint8_t statusByte)
+{
+    // Bits 0...5 contain the error code.
+    statusByte &= 0x3F;
+
+    if (statusByte == 0) {
+      #ifdef PN532DEBUG
+        PN532DEBUGPRINT.println("PN532 Status: OK! :)\r\n");
+      #endif
+        return true;
+    }
+
+  #ifdef PN532DEBUG
+    PN532DEBUGPRINT.println("@#!@#!@#!@#!@#!@#!@#!@#!@#!@#!");
+    PN532DEBUGPRINT.print("PN532 Status Error: ");
+    PN532DEBUGPRINT.println(statusByte,HEX);
+
+    switch (statusByte)
+    {
+        case 0x01: 
+            PN532DEBUGPRINT.println("Timeout");
+            break;
+        case 0x02: 
+            PN532DEBUGPRINT.println("CRC error");
+            break;
+        case 0x03: 
+            PN532DEBUGPRINT.println("Parity error");
+            break;
+        case 0x04: 
+            PN532DEBUGPRINT.println("Wrong bit count during anti-collision");
+            break;
+        case 0x05: 
+            PN532DEBUGPRINT.println("Framing error");
+            break;
+        case 0x06: 
+            PN532DEBUGPRINT.println("Abnormal bit collision");
+            break;
+        case 0x07: 
+            PN532DEBUGPRINT.println("Insufficient communication buffer");
+            break;
+        case 0x09: 
+            PN532DEBUGPRINT.println("RF buffer overflow");
+            break;
+        case 0x0A: 
+            PN532DEBUGPRINT.println("RF field has not been switched on");
+            break;
+        case 0x0B: 
+            PN532DEBUGPRINT.println("RF protocol error");
+            break;
+        case 0x0D: 
+            PN532DEBUGPRINT.println("Overheating");
+            break;
+        case 0x0E: 
+            PN532DEBUGPRINT.println("Internal buffer overflow");
+            break;
+        case 0x10: 
+            PN532DEBUGPRINT.println("Invalid parameter");
+            break;
+        case 0x12: 
+            PN532DEBUGPRINT.println("Command not supported");
+            break;
+        case 0x13: 
+            PN532DEBUGPRINT.println("Wrong data format");
+            break;
+        case 0x14:
+            PN532DEBUGPRINT.println("Authentication error");
+            break;
+        case 0x23:
+            PN532DEBUGPRINT.println("Wrong UID check byte");
+            break;
+        case 0x25:
+            PN532DEBUGPRINT.println("Invalid device state");
+            break;
+        case 0x26:
+            PN532DEBUGPRINT.println("Operation not allowed");
+            break;
+        case 0x27:
+            PN532DEBUGPRINT.println("Command not acceptable");
+            break;
+        case 0x29:
+            PN532DEBUGPRINT.println("Target has been released");
+            break;
+        case 0x2A:
+            PN532DEBUGPRINT.println("Card has been exchanged");
+            break;
+        case 0x2B:
+            PN532DEBUGPRINT.println("Card has disappeared");
+            break;
+        case 0x2C:
+            PN532DEBUGPRINT.println("NFCID3 initiator/target mismatch");
+            break;
+        case 0x2D:
+            PN532DEBUGPRINT.println("Over-current");
+            break;
+        case 0x2E:
+            PN532DEBUGPRINT.println("NAD msssing");
+            break;
+        default:
+            PN532DEBUGPRINT.println("Undocumented error");
+            break;
+    }
+
+    Serial.println("@#!@#!@#!@#!@#!@#!@#!@#!@#!@#!");
+  #endif
+    return false;
 }
