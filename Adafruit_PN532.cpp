@@ -1691,7 +1691,7 @@ bool Adafruit_PN532::isready() {
 /**************************************************************************/
 bool Adafruit_PN532::waitready(uint16_t timeout) {
   #ifdef PN532DEBUG
-    PN532DEBUGPRINT..println(F("waitready"));
+    PN532DEBUGPRINT.println(F("waitready"));
   #endif
   uint16_t timer = 0;
   while (!isready()) {
