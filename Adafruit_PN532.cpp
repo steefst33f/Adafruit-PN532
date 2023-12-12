@@ -340,7 +340,9 @@ bool Adafruit_PN532::sendCommandCheckAck(uint8_t *cmd, uint8_t cmdlen,
 
   // Wait for chip to say its ready!
   if (!waitready(timeout)) {
+  #ifdef PN532DEBUG
     PN532DEBUGPRINT.println(F("Timed out......"));
+  #endif
     return false;
   }
 
@@ -790,7 +792,7 @@ bool Adafruit_PN532::inDataExchange(uint8_t *send, uint8_t sendLength,
     }
     if (pn532_packetbuffer[5] == PN532_PN532TOHOST &&
         pn532_packetbuffer[6] == PN532_RESPONSE_INDATAEXCHANGE) {
-      if (checkPN532Status(pn532_packetbuffer[7])) {
+      if (!checkPN532Status(pn532_packetbuffer[7])) {
 #ifdef PN532DEBUG
         PN532DEBUGPRINT.println(F("Status code indicates an error"));
 #endif
@@ -1638,6 +1640,9 @@ uint8_t Adafruit_PN532::ntag2xx_WriteNDEFURI(uint8_t uriIdentifier, char *url,
 */
 /**************************************************************************/
 bool Adafruit_PN532::readack() {
+  #ifdef PN532DEBUG
+    PN532DEBUGPRINT.println(F("readack"));
+  #endif
   uint8_t ackbuff[6];
 
   if (spi_dev) {
@@ -1685,6 +1690,9 @@ bool Adafruit_PN532::isready() {
 */
 /**************************************************************************/
 bool Adafruit_PN532::waitready(uint16_t timeout) {
+  #ifdef PN532DEBUG
+    PN532DEBUGPRINT..println(F("waitready"));
+  #endif
   uint16_t timer = 0;
   while (!isready()) {
     if (timeout != 0) {
