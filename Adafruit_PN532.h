@@ -162,7 +162,7 @@ public:
 
   // ISO14443A functions
   bool startPassiveTargetIDDetection(uint8_t cardbaudrate);
-  bool readPassiveTargetID(uint8_t cardbaudrate, uint8_t *uid, uint8_t *uidLength, uint16_t timeout = 1000, bool inlist = false); // timeout 0 means no timeout - will block forever.
+  bool readPassiveTargetID(uint8_t cardbaudrate, uint8_t *uid, uint8_t *uidLength, uint16_t timeout = 1000, bool inlist = false);
   bool readPassiveTargetID(uint8_t cardbaudrate, uint8_t *uid, uint8_t *uidLength, uint8_t *apdu, uint8_t *apduLength, uint16_t timeout = 1000, bool inlist = false); //also get the APDU 
   bool inDataExchange(uint8_t *send, uint8_t sendLength, uint8_t *response,
                       uint8_t *responseLength);
@@ -215,7 +215,8 @@ private:
   bool isready();
   bool waitready(uint16_t timeout);
   bool readack();
-  bool checkPN532Status(uint8_t statusByte);
+  bool isValidPN532NormalInformationFrame(uint8_t tfi, uint8_t cmd);
+  bool isPN532StatusOk(uint8_t statusByte);
 
   Adafruit_SPIDevice *spi_dev = NULL;
   Adafruit_I2CDevice *i2c_dev = NULL;

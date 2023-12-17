@@ -746,80 +746,82 @@ bool Adafruit_PN532::readDetectedPassiveTargetID(uint8_t *uid,
     @return  true on success, false otherwise.
 */
 /**************************************************************************/
-bool Adafruit_PN532::inDataExchange(uint8_t *send, uint8_t sendLength,
-                                    uint8_t *response,
-                                    uint8_t *responseLength) {
-  if (sendLength > PN532_PACKBUFFSIZ - 2) {
-#ifdef PN532DEBUG
-    PN532DEBUGPRINT.println(F("APDU length too long for packet buffer"));
-#endif
+bool Adafruit_PN532::inDataExchange(uint8_t *send, uint8_t sendLength, uint8_t *response, uint8_t *responseLength) {
+  log_e();
+  if (sendLength > PN532_PACKBUFFSIZ - 2) { //(TFI + CMD + Sendlength <= PN532_PACKBUFFSIZ)
+    #ifdef PN532DEBUG
+      PN532DEBUGPRINT.println(F("APDU length too long for packet buffer to send"));
+    #endif
     return false;
   }
-  uint8_t i;
 
-  pn532_packetbuffer[0] = 0x40; // PN532_COMMAND_INDATAEXCHANGE;
+  //TODO: break response request into multiple pages to keep buffer small and support larger responses as well.
+  if (*responseLength > PN532_PACKBUFFSIZ - 3) { //(TFI + CMD + responseLength <= PN532_PACKBUFFSIZ)
+    #ifdef PN532DEBUG
+      PN532DEBUGPRINT.println(F("response APDU length too long for packet buffer to receive"));
+    #endif
+    return false;
+  }
+
+  pn532_packetbuffer[0] = PN532_COMMAND_INDATAEXCHANGE;
   pn532_packetbuffer[1] = _inListedTag;
-  for (i = 0; i < sendLength; ++i) {
+  for (uint8_t i = 0; i < sendLength; ++i) {
     pn532_packetbuffer[i + 2] = send[i];
   }
 
   if (!sendCommandCheckAck(pn532_packetbuffer, sendLength + 2, 1000)) {
-#ifdef PN532DEBUG
-    PN532DEBUGPRINT.println(F("Could not send APDU"));
-#endif
+    #ifdef PN532DEBUG
+      PN532DEBUGPRINT.println(F("Could not send APDU"));
+    #endif
     return false;
   }
 
   if (!waitready(1000)) {
-#ifdef PN532DEBUG
-    PN532DEBUGPRINT.println(F("Response never received for APDU..."));
-#endif
+    #ifdef PN532DEBUG
+      PN532DEBUGPRINT.println(F("Response never received for APDU..."));
+    #endif
     return false;
   }
 
-  readdata(pn532_packetbuffer, sizeof(pn532_packetbuffer));
+  readdata(pn532_packetbuffer, PN532_PACKBUFFSIZ);
 
-  if (pn532_packetbuffer[0] == 0 && pn532_packetbuffer[1] == 0 &&
-      pn532_packetbuffer[2] == 0xff) {
-    uint8_t length = pn532_packetbuffer[3];
-    if (pn532_packetbuffer[4] != (uint8_t)(~length + 1)) {
-#ifdef PN532DEBUG
-      PN532DEBUGPRINT.println(F("Length check invalid"));
-      PN532DEBUGPRINT.println(length, HEX);
-      PN532DEBUGPRINT.println((~length) + 1, HEX);
-#endif
-      return false;
-    }
-    if (pn532_packetbuffer[5] == PN532_PN532TOHOST &&
-        pn532_packetbuffer[6] == PN532_RESPONSE_INDATAEXCHANGE) {
-      if (!checkPN532Status(pn532_packetbuffer[7])) {
-#ifdef PN532DEBUG
-        PN532DEBUGPRINT.println(F("Status code indicates an error"));
-#endif
-        return false;
-      }
-
-      length -= 3;
-
-      if (length > *responseLength) {
-        length = *responseLength; // silent truncation...
-      }
-
-      for (i = 0; i < length; ++i) {
-        response[i] = pn532_packetbuffer[8 + i];
-      }
-      *responseLength = length;
-
-      return true;
-    } else {
-      PN532DEBUGPRINT.print(F("Don't know how to handle this command: "));
-      PN532DEBUGPRINT.println(pn532_packetbuffer[6], HEX);
-      return false;
-    }
-  } else {
-    PN532DEBUGPRINT.println(F("Preamble missing"));
+  if (!isValidPN532NormalInformationFrame(PN532_PN532TOHOST, PN532_RESPONSE_INDATAEXCHANGE)) {
+    #ifdef PN532DEBUG
+      PN532DEBUGPRINT.println(F("Recieved PN532 Response frame corrupt"));
+    #endif
     return false;
   }
+
+  // Check status byte
+  if (!isPN532StatusOk(pn532_packetbuffer[7])) {
+    #ifdef PN532DEBUG
+      PN532DEBUGPRINT.println(F("Status code indicates an error"));
+    #endif
+    return false;
+  }
+
+  // Deduct the CMD and Status bytes to get DataIn response length
+  // get Length of the response data (DataIn)
+  // length = LEN - sizeOf(tfi) sizeOf(cmd) - sizeOf(status)
+  uint8_t length = pn532_packetbuffer[3] - 3;
+  Serial.println("length: " + String(length));
+
+  // If length is larger than the expected responseLenght, truncate it to responseLength
+  if (length > *responseLength) {
+    #ifdef PN532DEBUG
+      PN532DEBUGPRINT.println(F("Response data returned is trunctated to expected to responseLenght"));
+    #endif
+    length = *responseLength; // silent truncation...
+  }
+
+  // return DataIn as response
+  for (uint8_t i = 0; i < length; ++i) {
+    response[i] = pn532_packetbuffer[8 + i];
+  }
+
+  *responseLength = length;
+
+  return true;
 }
 
 /**************************************************************************/
@@ -921,7 +923,7 @@ bool Adafruit_PN532::inRelease(const uint8_t relevantTarget)
         return false;
     }
 
-    return checkPN532Status(pn532_packetbuffer[7]);
+    return isPN532StatusOk(pn532_packetbuffer[7]);
 }
 
 /***** Mifare Classic Functions ******/
@@ -982,9 +984,6 @@ uint8_t Adafruit_PN532::mifareclassic_AuthenticateBlock(uint8_t *uid,
                                                         uint32_t blockNumber,
                                                         uint8_t keyNumber,
                                                         uint8_t *keyData) {
-  // uint8_t len;
-  uint8_t i;
-
   // Hang on to the key and uid data
   memcpy(_key, keyData, 6);
   memcpy(_uid, uid, uidLen);
@@ -1007,7 +1006,7 @@ uint8_t Adafruit_PN532::mifareclassic_AuthenticateBlock(uint8_t *uid,
   pn532_packetbuffer[3] =
       blockNumber; /* Block Number (1K = 0..63, 4K = 0..255 */
   memcpy(pn532_packetbuffer + 4, _key, 6);
-  for (i = 0; i < _uidLen; i++) {
+  for (uint8_t i = 0; i < _uidLen; i++) {
     pn532_packetbuffer[10 + i] = _uid[i]; /* 4 byte card ID */
   }
 
@@ -1805,7 +1804,7 @@ uint8_t Adafruit_PN532::getDataTarget(uint8_t *cmd, uint8_t *cmdlen) {
   //  length = *responseLength; // silent truncation...
   //}
 
-  for (int i = 0; i < length; ++i) {
+  for (uint8_t i = 0; i < length; ++i) {
     cmd[i] = pn532_packetbuffer[8 + i];
   }
   *cmdlen = length;
@@ -1831,7 +1830,7 @@ uint8_t Adafruit_PN532::setDataTarget(uint8_t *cmd, uint8_t cmdlen) {
   // read data packet
   readdata(pn532_packetbuffer, 8);
   length = pn532_packetbuffer[3] - 3;
-  for (int i = 0; i < length; ++i) {
+  for (uint8_t i = 0; i < length; ++i) {
     cmd[i] = pn532_packetbuffer[8 + i];
   }
   // cmdl = 0
@@ -1939,6 +1938,89 @@ void Adafruit_PN532::writecommand(uint8_t *cmd, uint8_t cmdlen) {
 
 /**************************************************************************/
 /*!
+    @brief  checks if the last received PN532 Normal Information Frame 
+            stored in the pn532_packetbuffer is valid.
+            when ok returns true, 
+            when error return false.
+*/
+/**************************************************************************/
+bool Adafruit_PN532::isValidPN532NormalInformationFrame(uint8_t tfi, uint8_t cmd)
+{
+  log_e();
+  // PN532 Normal Information Frame:
+  // 00 00 FF LEN LCS TFI DATA DCS 00
+  // LEN: 1 byte, number of bytes in the DATA + TFI field
+  // LCS: 1 byte, packet lenght checksum (LEN + LCS = 0x00)
+  // TFI: 1 byte, frame identifier (0xD4 host controller -> PN532, 0xD5 PN532 -> host controller)
+  // DATA: LEN -1 bytes, packet data information, first byte is Command Code
+  // DCS: 1 byte, Data Checksum (TFI + DATA0 -DATAn + DCS = 0x00)
+
+  // Check if starts with Preamble and Start of Package Code (00 00 FF)
+  if (pn532_packetbuffer[0] != PN532_PREAMBLE && pn532_packetbuffer[1] != PN532_STARTCODE1 && pn532_packetbuffer[2] != PN532_STARTCODE2) {
+    #ifdef PN532DEBUG
+      PN532DEBUGPRINT.print(F("Invalid Preamble "));
+    #endif
+    return false;
+  }
+  // LEN
+  uint8_t length = pn532_packetbuffer[3];
+  // LCS: check if package lenght checksum is valid
+  if (pn532_packetbuffer[4] != (uint8_t)(~length + 1)) {
+    #ifdef PN532DEBUG
+      PN532DEBUGPRINT.println(F("Length check invalid"));
+      PN532DEBUGPRINT.println(length, HEX);
+      PN532DEBUGPRINT.println((~length) + 1, HEX);
+    #endif
+    return false;
+  }
+
+  // TFI
+  if (pn532_packetbuffer[5] != tfi) {
+    #ifdef PN532DEBUG
+      PN532DEBUGPRINT.print(F("This is not a PN532 Response to the host controller! TFI: "));
+      PN532DEBUGPRINT.println(pn532_packetbuffer[5], HEX);
+    #endif
+    return false;
+  }
+
+  // CMD
+  if (pn532_packetbuffer[6] != cmd) {
+    #ifdef PN532DEBUG
+      PN532DEBUGPRINT.print(F("Don't know how to handle this command: "));
+      PN532DEBUGPRINT.println(pn532_packetbuffer[6], HEX);
+    #endif
+    return false; 
+  }
+
+  // DCS
+  uint8_t dcsCheckum = 0;
+  // sum data for dcs checksum
+  for (uint8_t i = 0; i < length; ++i) {
+    dcsCheckum += pn532_packetbuffer[5 + i];
+  }
+
+  if (pn532_packetbuffer[5 + length] != (uint8_t)(~dcsCheckum + 1)) {
+    #ifdef PN532DEBUG
+      PN532DEBUGPRINT.println(F("DCS checksum failed, data corrupt"));
+      PN532DEBUGPRINT.println(pn532_packetbuffer[6 + length], HEX);
+      PN532DEBUGPRINT.println((~dcsCheckum) + 1, HEX);
+    #endif
+    return false;
+  }
+
+  // Postamble
+  if (pn532_packetbuffer[5 + length + 1] != PN532_POSTAMBLE) {
+    #ifdef PN532DEBUG
+      PN532DEBUGPRINT.println(F("Invalid Postamble"));
+    #endif
+    return false;
+  }
+
+  return true;
+}
+
+/**************************************************************************/
+/*!
     @brief  Checks the PN532 status byte, when ok returns true, 
             when error return false.
             (When PN532DEBUG enabled, prints error status to serial.)
@@ -1946,17 +2028,19 @@ void Adafruit_PN532::writecommand(uint8_t *cmd, uint8_t cmdlen) {
     @param  statusByte PN532 Response Status byte
 */
 /**************************************************************************/
-bool Adafruit_PN532::checkPN532Status(uint8_t statusByte)
+bool Adafruit_PN532::isPN532StatusOk(uint8_t statusByte)
 {
-    // Bits 0...5 contain the error code.
-    statusByte &= 0x3F;
+  log_e();
 
-    if (statusByte == 0) {
-      #ifdef PN532DEBUG
-        PN532DEBUGPRINT.println("PN532 Status: OK! :)\r\n");
-      #endif
-        return true;
-    }
+  // Bits 0...5 contain the error code.
+  statusByte &= 0x3F;
+
+  if (statusByte == 0) {
+    #ifdef PN532DEBUG
+      PN532DEBUGPRINT.println("PN532 Status: OK! :)\r\n");
+    #endif
+      return true;
+  }
 
   #ifdef PN532DEBUG
     PN532DEBUGPRINT.println("@#!@#!@#!@#!@#!@#!@#!@#!@#!@#!");
