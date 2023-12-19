@@ -75,7 +75,7 @@ byte pn532response_firmwarevers[] = {
 #define PN532DEBUGPRINT Serial ///< Fixed name for debug Serial instance
 //#define PN532DEBUGPRINT SerialUSB ///< Fixed name for debug Serial instance
 
-#define PN532_PACKBUFFSIZ 0xFA              ///< Packet buffer size in bytes
+#define PN532_PACKBUFFSIZ 64                ///< Packet buffer size in bytes
 byte pn532_packetbuffer[PN532_PACKBUFFSIZ]; ///< Packet buffer used in various
                                             ///< transactions
 
@@ -757,8 +757,9 @@ bool Adafruit_PN532::inDataExchange(uint8_t *send, uint8_t sendLength, uint8_t *
     return false;
   }
 
-  //TODO: break response request into multiple pages to keep buffer small and support larger responses as well.
-  if (*responseLength > PN532_PACKBUFFSIZ - 3) { //(TFI + CMD + responseLength <= PN532_PACKBUFFSIZ)
+  // length needed for data frame = (Preamble + start code + LEN + LCS + TFI + CMD + pn532Status + DCS + Postamble + status) = 10 bytes
+  // size left for response data = PN532_PACKBUFFSIZ - 10
+  if (*responseLength > PN532_PACKBUFFSIZ - 10) {
     #ifdef PN532DEBUG
     PN532DEBUGPRINT.println(F("response APDU length too long for packet buffer to receive"));
     #endif
