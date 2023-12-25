@@ -326,8 +326,6 @@ uint32_t Adafruit_PN532::getFirmwareVersion(void) {
 bool Adafruit_PN532::sendCommandCheckAck(uint8_t *cmd, uint8_t cmdlen,
                                          uint16_t timeout) {
 
-  log_e();
-
   // I2C works without using IRQ pin by polling for RDY byte
   // seems to work best with some delays between transactions
   uint8_t SLOWDOWN = 0;
